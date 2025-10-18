@@ -12,10 +12,18 @@ export async function GET() {
     const schedule = await getTodaySchedule();
 
     if (!schedule) {
-      return NextResponse.json(null);
+      return NextResponse.json(null, {
+        headers: {
+          "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600",
+        },
+      });
     }
 
-    return NextResponse.json(schedule);
+    return NextResponse.json(schedule, {
+      headers: {
+        "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600",
+      },
+    });
   } catch (error) {
     console.error("Error fetching today's schedule:", error);
 

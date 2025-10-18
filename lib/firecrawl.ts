@@ -24,7 +24,9 @@ export async function scrapeCategoryPage(): Promise<string[]> {
 
     // Firecrawl SDK returns data directly, not wrapped in {success, data}
     // Extract links from the response
-    const links = scrapeResult.links || [];
+    const links = (scrapeResult.links || []) as Array<
+      string | { url?: string }
+    >;
 
     if (!links || links.length === 0) {
       console.warn("No links found in category page");
@@ -38,16 +40,19 @@ export async function scrapeCategoryPage(): Promise<string[]> {
     // - https://www.hardywyzszaforma.pl/post/plan-treningowy-na-tydzie%C5%84-29-07-03-08
     // - https://www.hardywyzszaforma.pl/post/plan-treningowy
     const blogPostUrls = links.filter((link) => {
-      const url = typeof link === "string" ? link : link.url || "";
+      const url =
+        typeof link === "string" ? link : (link as { url?: string }).url || "";
       return (
         url.includes("/post/plan-treningowy") && !url.includes("/categories/")
       );
     });
 
     // Convert to string array if needed
-    const urlStrings = blogPostUrls.map((link) =>
-      typeof link === "string" ? link : link.url || link
-    );
+    const urlStrings = blogPostUrls
+      .map((link) =>
+        typeof link === "string" ? link : (link as { url?: string }).url || ""
+      )
+      .filter(Boolean);
 
     // Return the 2 most recent posts (they should be in order)
     const uniqueUrls = Array.from(new Set(urlStrings)).slice(0, 2);

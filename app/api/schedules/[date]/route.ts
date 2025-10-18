@@ -29,10 +29,18 @@ export async function GET(
     const schedule = await getDaySchedule(date);
 
     if (!schedule) {
-      return NextResponse.json(null);
+      return NextResponse.json(null, {
+        headers: {
+          "Cache-Control": "public, s-maxage=3600, stale-while-revalidate=7200",
+        },
+      });
     }
 
-    return NextResponse.json(schedule);
+    return NextResponse.json(schedule, {
+      headers: {
+        "Cache-Control": "public, s-maxage=3600, stale-while-revalidate=7200",
+      },
+    });
   } catch (error) {
     console.error("Error fetching day schedule:", error);
 

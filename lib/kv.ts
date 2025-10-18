@@ -6,54 +6,121 @@ const redis = Redis.fromEnv();
 
 /**
  * Storage Keys Structure:
- * - schedules:{week} → Full week schedule object
- * - schedules:list → Sorted set of all week identifiers (with timestamps)
- * - schedules:latest → Pointer to most recent week
+ * - schedules:day:{YYYY-MM-DD} → Individual day schedule
+ * - schedules:days:list → Sorted set of all day dates (with timestamps)
  * - schedules:latest_update → Timestamp of last update
+ * - schedules:week:{week} → Original week metadata (for reference)
  * - logs:scraping:{date} → Daily scraping logs
  */
 
 /**
- * Store a week schedule in KV
+ * Convert DD.MM date to YYYY-MM-DD format using current year
+ * Handles year boundaries (e.g., if current month is Jan and date is Dec, use previous year)
+ * @param date - Date in DD.MM format
+ * @returns Date in YYYY-MM-DD format
+ */
+function convertToISODate(date: string): string {
+  const [day, month] = date.split(".").map(Number);
+  const now = new Date();
+  let year = now.getFullYear();
+
+  // Handle year boundary: if we're in January and the date is December, use previous year
+  if (now.getMonth() === 0 && month === 12) {
+    year -= 1;
+  }
+  // Handle year boundary: if we're in December and the date is January, use next year
+  if (now.getMonth() === 11 && month === 1) {
+    year += 1;
+  }
+
+  const isoDate = `${year}-${month.toString().padStart(2, "0")}-${day
+    .toString()
+    .padStart(2, "0")}`;
+  return isoDate;
+}
+
+/**
+ * Store a week schedule as individual days in KV
  * @param schedule - The week schedule to store
- * @returns Success boolean
+ * @returns Number of days stored successfully
  */
 export async function storeWeekSchedule(
   schedule: WeekSchedule
-): Promise<boolean> {
+): Promise<number> {
   try {
-    const key = `schedules:${schedule.week}`;
+    let storedCount = 0;
+    const now = Date.now();
 
-    // Store the schedule (Upstash Redis handles JSON automatically)
-    await redis.set(key, schedule);
+    // Store each day individually
+    for (const day of schedule.days) {
+      const isoDate = convertToISODate(day.date);
+      const key = `schedules:day:${isoDate}`;
 
-    // Add to sorted set with timestamp as score
-    const timestamp = new Date(schedule.scrapedAt).getTime();
-    await redis.zadd("schedules:list", {
-      score: timestamp,
-      member: schedule.week,
+      // Store day schedule with metadata
+      await redis.set(key, {
+        ...day,
+        isoDate,
+        sourceUrl: schedule.sourceUrl,
+        scrapedAt: schedule.scrapedAt,
+      });
+
+      // Add to sorted set with timestamp as score
+      await redis.zadd("schedules:days:list", {
+        score: now,
+        member: isoDate,
+      });
+
+      storedCount++;
+      console.log(`Stored day schedule: ${isoDate} (${day.dayName})`);
+    }
+
+    // Store week metadata for reference
+    const weekKey = `schedules:week:${schedule.week}`;
+    await redis.set(weekKey, {
+      week: schedule.week,
+      sourceUrl: schedule.sourceUrl,
+      scrapedAt: schedule.scrapedAt,
+      dayCount: schedule.days.length,
     });
 
-    // Update latest pointer and timestamp
-    await redis.set("schedules:latest", schedule.week);
-    await redis.set("schedules:latest_update", Date.now());
+    // Update latest update timestamp
+    await redis.set("schedules:latest_update", now);
 
-    return true;
+    console.log(
+      `Successfully stored ${storedCount} days from week ${schedule.week}`
+    );
+    return storedCount;
   } catch (error) {
     console.error("Error storing week schedule:", error);
+    return 0;
+  }
+}
+
+/**
+ * Check if a day schedule already exists
+ * @param isoDate - Date in YYYY-MM-DD format
+ * @returns Boolean indicating if schedule exists
+ */
+export async function dayScheduleExists(isoDate: string): Promise<boolean> {
+  try {
+    const key = `schedules:day:${isoDate}`;
+    const exists = await redis.exists(key);
+    return exists === 1;
+  } catch (error) {
+    console.error("Error checking if day schedule exists:", error);
     return false;
   }
 }
 
 /**
- * Check if a week schedule already exists
+ * Check if a week schedule already exists (checks first day of week)
  * @param week - Week identifier (DD/MM/YYYY-DD/MM/YYYY)
  * @returns Boolean indicating if schedule exists
  */
 export async function weekScheduleExists(week: string): Promise<boolean> {
   try {
-    const key = `schedules:${week}`;
-    const exists = await redis.exists(key);
+    const weekKey = `schedules:week:${week}`;
+    const exists = await redis.exists(weekKey);
     return exists === 1;
   } catch (error) {
     console.error("Error checking if week schedule exists:", error);
@@ -62,65 +129,49 @@ export async function weekScheduleExists(week: string): Promise<boolean> {
 }
 
 /**
- * Get a specific week schedule
- * @param week - Week identifier (DD/MM/YYYY-DD/MM/YYYY)
- * @returns Week schedule or null
+ * Get all day schedules
+ * @returns Array of day schedules sorted by date (most recent first)
  */
-export async function getWeekSchedule(
-  week: string
-): Promise<WeekSchedule | null> {
+export async function getAllDaySchedules(): Promise<DaySchedule[]> {
   try {
-    const key = `schedules:${week}`;
-    // Upstash Redis handles JSON deserialization automatically
-    const data = await redis.get<WeekSchedule>(key);
-    return data;
-  } catch (error) {
-    console.error("Error getting week schedule:", error);
-    return null;
-  }
-}
+    // Get all day dates from sorted set (newest first)
+    const dates = await redis.zrange("schedules:days:list", 0, -1, {
+      rev: true,
+    });
 
-/**
- * Get all week schedules
- * @returns Array of week schedules sorted by date (most recent first)
- */
-export async function getAllWeekSchedules(): Promise<WeekSchedule[]> {
-  try {
-    // Get all week identifiers from sorted set (newest first)
-    const weeks = await redis.zrange("schedules:list", 0, -1, { rev: true });
-
-    if (!weeks || weeks.length === 0) {
+    if (!dates || dates.length === 0) {
       return [];
     }
 
-    // Fetch all schedules
+    // Fetch all day schedules
     const schedules = await Promise.all(
-      weeks.map((week) => getWeekSchedule(week as string))
+      dates.map((date) => getDayScheduleByISO(date as string))
     );
 
     // Filter out nulls
     return schedules.filter(
-      (schedule): schedule is WeekSchedule => schedule !== null
+      (schedule): schedule is DaySchedule => schedule !== null
     );
   } catch (error) {
-    console.error("Error getting all week schedules:", error);
+    console.error("Error getting all day schedules:", error);
     return [];
   }
 }
 
 /**
- * Get the latest week schedule
- * @returns Latest week schedule or null
+ * Get day schedule by ISO date
+ * @param isoDate - Date in YYYY-MM-DD format
+ * @returns Day schedule or null
  */
-export async function getLatestWeekSchedule(): Promise<WeekSchedule | null> {
+export async function getDayScheduleByISO(
+  isoDate: string
+): Promise<DaySchedule | null> {
   try {
-    const latestWeek = await redis.get<string>("schedules:latest");
-    if (!latestWeek) {
-      return null;
-    }
-    return getWeekSchedule(latestWeek);
+    const key = `schedules:day:${isoDate}`;
+    const data = await redis.get<DaySchedule>(key);
+    return data;
   } catch (error) {
-    console.error("Error getting latest week schedule:", error);
+    console.error("Error getting day schedule by ISO:", error);
     return null;
   }
 }
@@ -134,17 +185,9 @@ export async function getDaySchedule(
   date: string
 ): Promise<DaySchedule | null> {
   try {
-    // Get all schedules and search for the date
-    const schedules = await getAllWeekSchedules();
-
-    for (const schedule of schedules) {
-      const day = schedule.days.find((d) => d.date === date);
-      if (day) {
-        return day;
-      }
-    }
-
-    return null;
+    // Convert DD.MM to YYYY-MM-DD
+    const isoDate = convertToISODate(date);
+    return getDayScheduleByISO(isoDate);
   } catch (error) {
     console.error("Error getting day schedule:", error);
     return null;
@@ -158,12 +201,8 @@ export async function getDaySchedule(
 export async function getTodaySchedule(): Promise<DaySchedule | null> {
   try {
     const today = new Date();
-    const date = `${today.getDate().toString().padStart(2, "0")}.${(
-      today.getMonth() + 1
-    )
-      .toString()
-      .padStart(2, "0")}`;
-    return getDaySchedule(date);
+    const isoDate = today.toISOString().split("T")[0]; // YYYY-MM-DD
+    return getDayScheduleByISO(isoDate);
   } catch (error) {
     console.error("Error getting today schedule:", error);
     return null;
@@ -202,9 +241,10 @@ export async function shouldSkipScraping(): Promise<{
   daysAhead: number;
 }> {
   try {
-    const schedules = await getAllWeekSchedules();
+    // Get all day dates from sorted set
+    const dates = await redis.zrange("schedules:days:list", 0, -1);
 
-    if (schedules.length === 0) {
+    if (!dates || dates.length === 0) {
       return {
         shouldSkip: false,
         reason: "No schedules in database",
@@ -216,23 +256,13 @@ export async function shouldSkipScraping(): Promise<{
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
+    // Find the latest date in our schedules
     let maxDate = today;
 
-    for (const schedule of schedules) {
-      for (const day of schedule.days) {
-        // Parse DD.MM format
-        const [dayNum, monthNum] = day.date.split(".").map(Number);
-        const year = today.getFullYear();
-        const date = new Date(year, monthNum - 1, dayNum);
-
-        // Handle year boundary
-        if (date < today && monthNum === 1) {
-          date.setFullYear(year + 1);
-        }
-
-        if (date > maxDate) {
-          maxDate = date;
-        }
+    for (const dateStr of dates) {
+      const date = new Date(dateStr as string);
+      if (date > maxDate) {
+        maxDate = date;
       }
     }
 

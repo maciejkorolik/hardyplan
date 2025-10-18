@@ -88,10 +88,11 @@ export async function POST(request: NextRequest) {
 
     console.log(`Successfully parsed ${schedules.length} schedules`);
 
-    // Step 4: Store in KV (skip duplicates)
+    // Step 4: Store in KV as individual days (skip duplicates)
     const storedSchedules: string[] = [];
     const skippedSchedules: string[] = [];
     const errors: string[] = [];
+    let totalDaysStored = 0;
 
     for (const schedule of schedules) {
       try {
@@ -106,12 +107,15 @@ export async function POST(request: NextRequest) {
           continue;
         }
 
-        // Store new schedule
-        const stored = await storeWeekSchedule(schedule);
+        // Store new schedule (splits into individual days)
+        const daysStored = await storeWeekSchedule(schedule);
 
-        if (stored) {
-          console.log(`Successfully stored schedule for week ${schedule.week}`);
+        if (daysStored > 0) {
+          console.log(
+            `Successfully stored ${daysStored} days from week ${schedule.week}`
+          );
           storedSchedules.push(schedule.week);
+          totalDaysStored += daysStored;
         } else {
           errors.push(`Failed to store schedule for week ${schedule.week}`);
         }
@@ -146,6 +150,7 @@ export async function POST(request: NextRequest) {
       duration: `${duration}s`,
       stored: storedSchedules,
       skipped: skippedSchedules,
+      totalDaysStored,
     });
   } catch (error) {
     console.error("Fatal error in scraping process:", error);

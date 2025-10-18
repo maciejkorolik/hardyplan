@@ -1,35 +1,23 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getAllWeekSchedules, getWeekSchedule } from "@/lib/kv";
+import { NextResponse } from "next/server";
+import { getAllDaySchedules } from "@/lib/kv";
 
 /**
  * GET /api/schedules
  *
- * Returns all week schedules or specific week if query param provided
- * Query params:
- *   - week: Optional week identifier (DD/MM-DD/MM)
+ * Returns all day schedules (day-based storage)
  *
- * Response: Array of WeekSchedule objects or single WeekSchedule
+ * Response: Array of DaySchedule objects
  */
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
-    const searchParams = request.nextUrl.searchParams;
-    const week = searchParams.get("week");
+    // Get all day schedules (new day-based storage)
+    const schedules = await getAllDaySchedules();
 
-    // If week parameter provided, return specific week
-    if (week) {
-      const schedule = await getWeekSchedule(week);
-
-      if (!schedule) {
-        return NextResponse.json(null);
-      }
-
-      return NextResponse.json(schedule);
-    }
-
-    // Otherwise, return all schedules
-    const schedules = await getAllWeekSchedules();
-
-    return NextResponse.json(schedules);
+    return NextResponse.json(schedules, {
+      headers: {
+        "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600",
+      },
+    });
   } catch (error) {
     console.error("Error fetching schedules:", error);
 
@@ -40,5 +28,5 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// Enable caching for 1 hour
-export const revalidate = 3600;
+// Enable caching for 5 minutes
+export const revalidate = 300;

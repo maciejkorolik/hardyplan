@@ -20,6 +20,9 @@ export type TrainingSession = z.infer<typeof TrainingSessionSchema>;
 export const DayScheduleSchema = z.object({
   date: z.string(), // DD.MM format
   dayName: z.string(), // Polish day name
+  isoDate: z.string().optional(), // YYYY-MM-DD format (for day-based storage)
+  sourceUrl: z.string().optional(), // Original blog post URL
+  scrapedAt: z.string().optional(), // ISO timestamp
   trainingSessions: z.array(TrainingSessionSchema),
 });
 
