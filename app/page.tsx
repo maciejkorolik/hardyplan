@@ -1,33 +1,11 @@
 import { ScheduleViewerV2 } from "@/components/schedule-viewer-v2";
-import { DaySchedule } from "@/lib/types";
+import { getTodaySchedule } from "@/lib/kv";
 
-async function getTodaySchedule(): Promise<{
-  schedule: DaySchedule | null;
-  date: string;
-}> {
+async function getInitialSchedule() {
   try {
-    const res = await fetch(
-      `${
-        process.env.NEXT_PUBLIC_URL || "http://localhost:3000"
-      }/api/schedules/today`,
-      {
-        cache: "no-store", // Always get fresh data for today
-      }
-    );
+    // Call database directly instead of HTTP fetch for server-side rendering
+    const schedule = await getTodaySchedule();
 
-    if (!res.ok) {
-      return {
-        schedule: null,
-        date: new Date()
-          .toLocaleDateString("pl-PL", {
-            day: "2-digit",
-            month: "2-digit",
-          })
-          .replace(/\//g, "."),
-      };
-    }
-
-    const schedule = await res.json();
     const date =
       schedule?.date ||
       new Date()
@@ -53,7 +31,7 @@ async function getTodaySchedule(): Promise<{
 }
 
 export default async function Home() {
-  const { schedule, date } = await getTodaySchedule();
+  const { schedule, date } = await getInitialSchedule();
 
   return (
     <div className="min-h-screen bg-background">

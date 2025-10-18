@@ -66,6 +66,16 @@ pnpm dev
 
 5. Open [http://localhost:3000](http://localhost:3000)
 
+6. _(Optional)_ Populate initial data by triggering the scrape endpoint:
+
+```bash
+# Replace YOUR_CRON_SECRET with the value from your .env file
+curl -X POST http://localhost:3000/api/scrape \
+  -H "Authorization: Bearer YOUR_CRON_SECRET"
+```
+
+The cron job will automatically run daily at 8 AM to fetch new schedules.
+
 ## Deployment
 
 Deploy to Vercel with one click:
