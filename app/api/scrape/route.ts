@@ -22,7 +22,7 @@ import type { ScrapingResult } from "@/lib/types";
  * 4. Store in KV (skip duplicates)
  * 5. Log operation
  */
-export async function POST(request: NextRequest) {
+export async function GET(request: NextRequest) {
   const startTime = Date.now();
 
   try {
