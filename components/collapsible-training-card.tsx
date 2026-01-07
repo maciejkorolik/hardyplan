@@ -19,9 +19,13 @@ export function CollapsibleTrainingCard({
 }: CollapsibleTrainingCardProps) {
   const [isExpanded, setIsExpanded] = useState(defaultExpanded);
 
-  // Check if session includes "skakanka"
-  const hasSkakanka = session.exercises.some((exercise) =>
-    exercise.toLowerCase().includes("skakanka")
+  // Check if session includes jumping rope exercises (skakanka, SU, DU, SU/DU)
+  const hasSkakanka = session.exercises.some(
+    (exercise) =>
+      exercise.toLowerCase().includes("skakanka") ||
+      exercise.includes("SU") ||
+      exercise.includes("DU") ||
+      exercise.includes("SU/DU")
   );
 
   return (
